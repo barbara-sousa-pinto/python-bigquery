@@ -1,0 +1,30 @@
+name: Workflow
+
+env:
+  PYTHON_VERSION: "3.9"
+
+on:
+  workflow_dispatch
+
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      - name: Setup Python Version
+        uses: actions/setup-python@v1
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: 'Resolve Project Dependencies Using Pip'
+        shell: bash
+        run: |
+          pushd './${{ env.AZURE_FUNCTIONAPP_PACKAGE_PATH }}'
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r tests/test_requirements.txt
+
+      - name: 'Run tests'
+        run: pytest --cov-report term-missing --cov tests/

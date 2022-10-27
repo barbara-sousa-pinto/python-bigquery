@@ -460,3 +460,199 @@ class BigQuery:
             tables_list.append(table.table_id)
 
         return tables_list
+
+    def copy_table(
+            self,
+            source_table_name,
+            destination_table_name,
+            destination_dataset_name,
+            write_disposition='WRITE_APPEND'
+    ):
+        """Make a copy of a table from the class dataset.
+
+        Args:
+            source_table_name (str): The table name from which data is to be loaded.
+            destination_table_name (str): The table name into which data is to be loaded.
+            destination_dataset_name (str): The dataset name into which data is to be loaded.
+            write_disposition (str): Action that occurs if the destination table already exists.
+        See
+            https://cloud.google.com/bigquery/docs/reference/rest/v2/Job#JobConfigurationTableCopy.FIELDS.write_disposition
+        """
+
+        source_table_ref = self.dataset.table(source_table_name)
+        destination_table = self.client.get_table(
+            f'{self.project}.{destination_dataset_name}.{destination_table_name}'
+        )
+
+        job_config = bigquery.CopyJobConfig()
+        job_config.write_disposition = write_disposition
+        job = self.client.copy_table(sources=source_table_ref,
+                                     destination=destination_table,
+                                     job_config=job_config)
+        job.result()
+        assert job.state == 'DONE'
+
+        print(f'Table {source_table_ref.table_id} copied to {destination_table.table_id}')
+
+    def _copy_table(self, source_table_ref, destination_table_ref):
+        """Make a copy of a table in the class dataset.
+
+        Args:
+            source_table_ref (google.cloud.bigquery.table.TableReference):
+            destination_table_ref (google.cloud.bigquery.table.TableReference):
+        """
+
+        job_config = bigquery.CopyJobConfig()
+        job_config.write_disposition = 'WRITE_TRUNCATE'
+        job = self.client.copy_table(sources=source_table_ref,
+                                     destination=destination_table_ref,
+                                     job_config=job_config)
+
+        job.result()
+        assert job.state == 'DONE'
+
+        destination_table = self.client.get_table(destination_table_ref)
+        source_table = self.client.get_table(source_table_ref)
+
+        assert destination_table.num_rows == source_table.num_rows  # validation 2
+
+        print(f'Table {source_table.table_id} copied to {destination_table.table_id}')
+
+        return destination_table
+
+    def copy_dataset(self, dataset_name_to, add_date=True):
+
+        dataset_to = self.client.create_dataset(dataset=dataset_name_to, exists_ok=True)
+
+        for table in self.client.list_tables(dataset=self.dataset):
+
+            source_table_ref = table.reference
+            if add_date:
+                today = str(date.today()).replace('-', '_')
+                destination_table_id = f'{source_table_ref.table_id}_{today}'
+            else:
+                destination_table_id = f'{source_table_ref.table_id}'
+            destination_table_ref = dataset_to.table(destination_table_id)
+
+            self._copy_table(source_table_ref, destination_table_ref)
+
+        print(f'Dataset {self.dataset_name} copied to {dataset_name_to}')
+
+        return dataset_to
+
+    def delete_dataset(self, delete_contents=True):
+        """Delete the class dataset.
+
+        Args
+            delete_contents (boolean):
+                (Optional) If True, delete all the tables in the dataset. If
+                False and the dataset contains tables, the request will fail.
+                Default is True.
+        """
+        self.client.delete_dataset(self.dataset, delete_contents)
+        print(f'Deleted dataset {self.dataset.full_dataset_id}')
+
+    def delete_table(self, table_name):
+        table_ref = self.dataset.table(table_name)
+        self.client.delete_table(table_ref)
+        print('Deleted table {}:{}.{}'.format(table_ref.project,
+                                              table_ref.dataset_id,
+                                              table_ref.table_id))
+
+    def delete_rows(self, table_name, rows_to_delete):
+        if rows_to_delete:
+
+            try:
+
+                table_ref = self.dataset.table(table_name)
+                table = self.client.get_table(table_ref)
+                ids_to_delete = [str(row['id']) for row in rows_to_delete]
+                ids_to_delete = ','.join(ids_to_delete)
+
+                sql_delete_query = f"""
+                DELETE FROM {table.dataset_id}.{table.table_id}
+                WHERE id IN ({ids_to_delete})
+                """
+
+                query_job = self.client.query(sql_delete_query)  # API request
+                query_job.result()
+                print(sql_delete_query)
+                print('num_dml_affected_rows:', query_job.num_dml_affected_rows)
+                return query_job
+
+            except BadRequest as error:
+
+                print(error)
+                print('NOT deleted:', len(rows_to_delete))
+                return error
+
+        else:
+
+            print('No rows to delete.')
+
+    def run_query(self, sql):
+        """Run a SQL query, wait for it to complete and get the result.
+
+        Args:
+            sql (str):
+                SQL query to be executed. Defaults to the standard SQL
+                dialect. Use the ``job_config`` parameter to change dialects.
+
+        Returns:
+            google.cloud.bigquery.table.RowIterator:
+                Iterator of row data :class:`~google.cloud.bigquery.table.Row`.
+                The iterator will have the ``total_rows`` attribute set, which
+                counts the total number of rows **in the result set**.
+
+        Raises:
+            google.cloud.exceptions.GoogleCloudError:
+                If the job failed.
+            concurrent.futures.TimeoutError:
+                If the job did not complete in the given timeout.
+        """
+        query_job = self.client.query(sql)
+        rows = query_job.result()
+        return rows
+
+    def get_table_schema(self, table_name):
+        """Get table schema.
+
+        Args:
+            table_name (str): The name of the table to get the schema.
+
+        Returns:
+            List [google.cloud.bigquery.schema.SchemaField]:
+                The table’s schema in BigQuery format.
+            None: If table does not exist.
+        """
+        table_ref = self.dataset.table(table_name)
+        try:
+            schema = self.client.get_table(table_ref).schema
+        except NotFound:
+            return []
+
+        return schema
+
+    def add_column_in_table(self, table_name, new_column_name, new_column_type='STRING'):
+        """Add an empty column to an existing table.
+
+        Args:
+            table_name (str): The name of the table to add the column in schema.
+            new_column_name (str): The name of the field to be added.
+            new_column_type (str): The type of the field to be added.
+        """
+
+        table_ref = self.dataset.table(table_name)
+        table = self.client.get_table(table_ref)  # Make an API request.
+
+        original_schema = table.schema
+        new_schema = original_schema[:]  # Creates a copy of the schema.
+        new_schema.append(bigquery.SchemaField(new_column_name, new_column_type))
+
+        table.schema = new_schema
+        table = self.client.update_table(table, ["schema"])  # Make an API request.
+
+        if len(table.schema) == len(original_schema) + 1 == len(new_schema):
+            print(f"Column '{new_column_name}' has been added in table {table_name}.")
+        else:
+            print("The column has not been added.")

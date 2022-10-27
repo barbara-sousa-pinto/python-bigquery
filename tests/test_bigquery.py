@@ -238,12 +238,10 @@ class TestGoogleCloudBigQuery(unittest.TestCase):
              'description': None},
             {'mode': 'NULLABLE',
              'name': 'loaded_at',
-             'type': 'DATETIME',
-             'description': None},
+             'type': 'DATETIME'},
             {'mode': 'NULLABLE',
              'name': 'to_remove',
-             'type': 'BOOLEAN',
-             'description': None}
+             'type': 'BOOLEAN'}
         ]
 
         table_resource = {
@@ -304,12 +302,10 @@ class TestGoogleCloudBigQuery(unittest.TestCase):
              'description': None},
             {'mode': 'NULLABLE',
              'name': 'loaded_at',
-             'type': 'DATETIME',
-             'description': None},
+             'type': 'DATETIME'},
             {'mode': 'NULLABLE',
              'name': 'to_remove',
-             'type': 'BOOLEAN',
-             'description': None}
+             'type': 'BOOLEAN'}
         ]
 
         table_resource = {
@@ -368,12 +364,10 @@ class TestGoogleCloudBigQuery(unittest.TestCase):
              'description': None},
             {'mode': 'NULLABLE',
              'name': 'loaded_at',
-             'type': 'DATETIME',
-             'description': None},
+             'type': 'DATETIME'},
             {'mode': 'NULLABLE',
              'name': 'to_remove',
-             'type': 'BOOLEAN',
-             'description': None}
+             'type': 'BOOLEAN'}
         ]
 
         table_resource = {
@@ -440,12 +434,10 @@ class TestGoogleCloudBigQuery(unittest.TestCase):
              'description': None},
             {'mode': 'NULLABLE',
              'name': 'loaded_at',
-             'type': 'DATETIME',
-             'description': None},
+             'type': 'DATETIME'},
             {'mode': 'NULLABLE',
              'name': 'to_remove',
-             'type': 'BOOLEAN',
-             'description': None}
+             'type': 'BOOLEAN'}
         ]
 
         table_resource = {
@@ -512,12 +504,10 @@ class TestGoogleCloudBigQuery(unittest.TestCase):
              'description': None},
             {'mode': 'NULLABLE',
              'name': 'loaded_at',
-             'type': 'DATETIME',
-             'description': None},
+             'type': 'DATETIME'},
             {'mode': 'NULLABLE',
              'name': 'to_remove',
-             'type': 'BOOLEAN',
-             'description': None}
+             'type': 'BOOLEAN'}
         ]
 
         table_resource = {
@@ -887,3 +877,405 @@ class TestGoogleCloudBigQuery(unittest.TestCase):
             tables_list = bq.get_dataset_tables()
 
         assert tables_list == ['table_one', 'table_two']
+
+    def test__copy_table(self):
+        from google.cloud.bigquery.client import TableReference
+
+        client = _make_bigquery_client(project=self.PROJECT,
+                                       credentials=self.credentials,
+                                       _http=self.http)
+
+        dataset_copy_id = 'DATASET_COPY_ID'
+
+        source_id = "source_table"
+        source_table_ref = {
+            "projectId": self.PROJECT,
+            "datasetId": self.DS_ID,
+            "tableId": source_id,
+        }
+        source_table_resource = {
+            'tableReference': source_table_ref,
+            "numRows": 100
+        }
+
+        destination_id = "destination_table"
+        destination_table_ref = {
+            "projectId": self.PROJECT,
+            "datasetId": dataset_copy_id,
+            "tableId": destination_id,
+        }
+        destination_table_resource = {
+            'tableReference': destination_table_ref,
+            "numRows": 100
+        }
+
+        job = "job_name"
+        copy_job_resource = {
+            "jobReference": {"projectId": self.PROJECT, "jobId": job},
+            "configuration": {
+                "copy": {
+                    "sourceTables": source_table_ref,
+                    "destinationTable": destination_table_ref,
+                }
+            },
+            "status": {
+                "state": "DONE"
+            },
+        }
+
+        source_ref = TableReference.from_api_repr(source_table_ref)
+        destination_ref = TableReference.from_api_repr(destination_table_ref)
+
+        client._connection = _make_connection(self.dataset_resource,
+                                              copy_job_resource,
+                                              destination_table_resource,
+                                              source_table_resource)
+
+        mock_client = mock.patch("google.cloud.bigquery.Client",
+                                 return_value=client)
+
+        mock_output = mock.patch('sys.stdout', new_callable=io.StringIO)
+        with mock_client:
+            with mock_output as fake_output:
+                bq = BigQuery(self.DS_ID)
+                table_copy = bq._copy_table(source_ref, destination_ref)
+                output = fake_output.getvalue().strip()
+
+        self.assertEqual(table_copy.table_id, destination_id)
+        assert output == 'Table source_table copied to destination_table'
+
+    @mock.patch.object(BigQuery, '_copy_table')
+    def test_copy_dataset(self, mock_copy_table):
+        from google.cloud.bigquery.client import TableReference, DatasetReference
+
+        client = _make_bigquery_client(project=self.PROJECT,
+                                       credentials=self.credentials,
+                                       _http=self.http)
+
+        DS_ID = 'DATASET_COPY_ID'
+        copy_dataset_resource = {
+            "id": "%s:%s" % (self.PROJECT, DS_ID),
+            "datasetReference": {
+                "projectId": self.PROJECT, "datasetId": DS_ID
+            },
+        }
+
+        TABLE_1 = "table_one"
+        TABLE_2 = "table_two"
+        table_iterator_resource = {
+            "tables": [
+                {
+                    "kind": "bigquery#table",
+                    "id": "%s:%s.%s" % (self.PROJECT, self.DS_ID, TABLE_1),
+                    "tableReference": {
+                        "tableId": TABLE_1,
+                        "datasetId": self.DS_ID,
+                        "projectId": self.PROJECT,
+                    },
+                    "type": "TABLE",
+                },
+                {
+                    "kind": "bigquery#table",
+                    "id": "%s:%s.%s" % (self.PROJECT, self.DS_ID, TABLE_2),
+                    "tableReference": {
+                        "tableId": TABLE_2,
+                        "datasetId": self.DS_ID,
+                        "projectId": self.PROJECT,
+                    },
+                    "type": "TABLE",
+                },
+            ],
+        }
+
+        client._connection = _make_connection(self.dataset_resource,
+                                              copy_dataset_resource,
+                                              table_iterator_resource)
+
+        mock_client = mock.patch("google.cloud.bigquery.Client",
+                                 return_value=client)
+
+        mock_output = mock.patch('sys.stdout', new_callable=io.StringIO)
+        with mock_client:
+            with mock_output as fake_output:
+                bq = BigQuery(self.DS_ID)
+                dataset_copy = bq.copy_dataset(DS_ID)
+                output = fake_output.getvalue().strip()
+
+        today = str(date.today()).replace('-', '_')
+        table_ref_1 = TableReference(
+            DatasetReference('PROJECT', 'DATASET_ID'),
+            'table_one'
+        )
+        table_ref_1_old = TableReference(
+            DatasetReference('PROJECT', 'DATASET_COPY_ID'),
+            f'table_one_{today}'
+        )
+        mock_copy_table.assert_any_call(table_ref_1, table_ref_1_old)
+
+        table_ref_2 = TableReference(
+            DatasetReference('PROJECT', 'DATASET_ID'),
+            'table_two'
+        )
+        table_ref_2_old = TableReference(
+            DatasetReference('PROJECT', 'DATASET_COPY_ID'),
+            f'table_two_{today}'
+        )
+        mock_copy_table.assert_called_with(table_ref_2, table_ref_2_old)
+
+        assert output == 'Dataset DATASET_ID copied to DATASET_COPY_ID'
+
+        self.assertEqual(dataset_copy.dataset_id, DS_ID)
+
+    def test_delete_table(self):
+
+        path = "projects/%s/datasets/%s/tables/%s" % (
+            self.PROJECT,
+            self.DS_ID,
+            self.TABLE_ID,
+        )
+
+        client = _make_bigquery_client(project=self.PROJECT,
+                                       credentials=self.credentials,
+                                       _http=self.http)
+
+        conn = client._connection = _make_connection(self.dataset_resource,
+                                                     *([{}]))
+        mock_client = mock.patch("google.cloud.bigquery.Client",
+                                 return_value=client)
+
+        mock_output = mock.patch('sys.stdout', new_callable=io.StringIO)
+        with mock_client:
+            with mock_output as fake_output:
+                bq = BigQuery(self.DS_ID)
+                bq.delete_table(self.TABLE_ID)
+                output = fake_output.getvalue().strip()
+
+        assert output == "Deleted table {}:{}.{}".format(self.PROJECT,
+                                                         self.DS_ID,
+                                                         self.TABLE_ID)
+
+        conn.api_request.assert_any_call(
+            method="DELETE", path="/%s" % path, timeout=None
+        )
+
+    def test_make_schema(self):
+        from google.cloud.bigquery import SchemaField
+
+        expect_result = [
+            SchemaField('id', 'INTEGER', 'NULLABLE', None, ()),
+            SchemaField('name', 'STRING', 'NULLABLE', None, ()),
+            SchemaField('datetime', 'DATETIME', 'NULLABLE', None, ())
+        ]
+
+        schema = [
+            {"name": "id", "type": 'INTEGER'},
+            {"column_name": "name", "column_type": "STRING"},
+            {"field_name": "datetime", "field_type": "DATETIME"}
+        ]
+
+        client = _make_bigquery_client(project=self.PROJECT,
+                                       credentials=self.credentials,
+                                       _http=self.http)
+
+        client._connection = _make_connection(self.dataset_resource)
+        mock_client = mock.patch("google.cloud.bigquery.Client",
+                                 return_value=client)
+
+        with mock_client:
+            bigquery_schema = BigQuery(self.DS_ID).make_schema(schema)
+
+        self.assertEqual(bigquery_schema, expect_result)
+
+    def test_convert_mysql_schema_to_bigquery(self):
+
+        mysql_schema = [
+            {'column_name': 'int', 'column_type': 'int(10)'},
+            {'column_name': 'tinyint', 'column_type': 'tinyint(1)'},
+            {'column_name': 'smallint', 'column_type': 'smallint'},
+            {'column_name': 'mediumint', 'column_type': 'mediumint'},
+            {'column_name': 'bigint', 'column_type': 'bigint'},
+            {'column_name': 'decimal', 'column_type': 'decimal'},
+            {'column_name': 'float', 'column_type': 'float'},
+            {'column_name': 'double', 'column_type': 'double'},
+            {'column_name': 'bit', 'column_type': 'bit'},
+            {'column_name': 'char', 'column_type': 'char'},
+            {'column_name': 'varchar', 'column_type': 'varchar(255)'},
+            {'column_name': 'BLOB', 'column_type': 'BLOB'},
+            {'column_name': 'text', 'column_type': 'text'},
+            {'column_name': 'tinytext', 'column_type': 'tinytext'},
+            {'column_name': 'mediumtext', 'column_type': 'mediumtext'},
+            {'column_name': 'longtext', 'column_type': 'longtext'},
+            {'column_name': 'enum', 'column_type': 'enum'},
+            {'column_name': 'binary', 'column_type': 'binary'},
+            {'column_name': 'date', 'column_type': 'date'},
+            {'column_name': 'time', 'column_type': 'time'},
+            {'column_name': 'timestamp', 'column_type': 'timestamp'},
+            {'column_name': 'year', 'column_type': 'year'},
+            {'column_name': 'geometry', 'column_type': 'geometry'},
+            {'column_name': 'json', 'column_type': 'json'}
+        ]
+
+        expect_result = [
+            SchemaField('int', 'INTEGER', 'NULLABLE', None, ()),
+            SchemaField('tinyint', 'INTEGER', 'NULLABLE', None, ()),
+            SchemaField('smallint', 'INTEGER', 'NULLABLE', None, ()),
+            SchemaField('mediumint', 'INTEGER', 'NULLABLE', None, ()),
+            SchemaField('bigint', 'INTEGER', 'NULLABLE', None, ()),
+            SchemaField('decimal', 'FLOAT', 'NULLABLE', None, ()),
+            SchemaField('float', 'FLOAT', 'NULLABLE', None, ()),
+            SchemaField('double', 'FLOAT', 'NULLABLE', None, ()),
+            SchemaField('bit', 'BYTES', 'NULLABLE', None, ()),
+            SchemaField('char', 'STRING', 'NULLABLE', None, ()),
+            SchemaField('varchar', 'STRING', 'NULLABLE', None, ()),
+            SchemaField('BLOB', 'STRING', 'NULLABLE', None, ()),
+            SchemaField('text', 'STRING', 'NULLABLE', None, ()),
+            SchemaField('tinytext', 'STRING', 'NULLABLE', None, ()),
+            SchemaField('mediumtext', 'STRING', 'NULLABLE', None, ()),
+            SchemaField('longtext', 'STRING', 'NULLABLE', None, ()),
+            SchemaField('enum', 'STRING', 'NULLABLE', None, ()),
+            SchemaField('binary', 'STRING', 'NULLABLE', None, ()),
+            SchemaField('date', 'DATE', 'NULLABLE', None, ()),
+            SchemaField('time', 'TIME', 'NULLABLE', None, ()),
+            SchemaField('timestamp', 'TIMESTAMP', 'NULLABLE', None, ()),
+            SchemaField('year', 'DATE', 'NULLABLE', None, ()),
+            SchemaField('geometry', 'GEOGRAPHY', 'NULLABLE', None, ()),
+            SchemaField('json', 'STRING', 'NULLABLE', None, ())
+        ]
+
+        bigquery_schema = BigQuery.convert_mysql_schema_to_bigquery(mysql_schema)
+
+        self.assertEqual(bigquery_schema, expect_result)
+
+    def test_convert_postgres_schema_to_bigquery(self):
+
+        pg_schema = [
+            {'column_name': 'array', 'data_type': 'array'},
+            {'column_name': 'abstime', 'data_type': 'abstime'},
+            {'column_name': 'anyarray', 'data_type': 'anyarray'},
+            {'column_name': 'boolean', 'data_type': 'boolean'},
+            {'column_name': 'integer', 'data_type': 'integer'},
+            {'column_name': 'bigint', 'data_type': 'bigint'},
+            {'column_name': 'numeric', 'data_type': 'numeric'},
+            {'column_name': 'smallint', 'data_type': 'smallint'},
+            {'column_name': 'decimal', 'data_type': 'decimal'},
+            {'column_name': 'real', 'data_type': 'real'},
+            {'column_name': 'double precision', 'data_type': 'double precision'},
+            {'column_name': 'smallserial', 'data_type': 'smallserial'},
+            {'column_name': 'serial', 'data_type': 'serial'},
+            {'column_name': 'bigserial', 'data_type': 'bigserial'},
+            {'column_name': 'char', 'data_type': 'char'},
+            {'column_name': 'varchar', 'data_type': 'varchar'},
+            {'column_name': 'character', 'data_type': 'character'},
+            {'column_name': 'character varying', 'data_type': 'character varying'},
+            {'column_name': 'text', 'data_type': 'text'},
+            {'column_name': 'json', 'data_type': 'json'},
+            {'column_name': 'jsonb', 'data_type': 'jsonb'},
+            {'column_name': 'date', 'data_type': 'date'},
+            {'column_name': 'time', 'data_type': 'time'},
+            {'column_name': 'datetime', 'data_type': 'datetime'},
+            {'column_name': 'timestamp', 'data_type': 'timestamp'},
+            {'column_name': 'timestamp with time zone', 'data_type': 'timestamp with time zone'},
+            {'column_name': 'timestamp without time zone', 'data_type': 'timestamp without time zone'},
+            {'column_name': 'bytea', 'data_type': 'bytea'},
+            {'column_name': 'inet', 'data_type': 'inet'},
+            {'column_name': 'interval', 'data_type': 'interval'},
+            {'column_name': 'name', 'data_type': 'name'},
+            {'column_name': 'oid', 'data_type': 'oid'},
+            {'column_name': 'pg_lsn', 'data_type': 'pg_lsn'},
+            {'column_name': 'pg_node_tree', 'data_type': 'pg_node_tree'},
+            {'column_name': 'regproc', 'data_type': 'regproc'},
+            {'column_name': 'xid', 'data_type': 'xid'},
+        ]
+
+        expect_result = [
+            SchemaField('array', 'STRING', 'NULLABLE', None, ()),
+            SchemaField('abstime', 'STRING', 'NULLABLE', None, ()),
+            SchemaField('anyarray', 'STRING', 'NULLABLE', None, ()),
+            SchemaField('boolean', 'BOOLEAN', 'NULLABLE', None, ()),
+            SchemaField('integer', 'INTEGER', 'NULLABLE', None, ()),
+            SchemaField('bigint', 'INTEGER', 'NULLABLE', None, ()),
+            SchemaField('numeric', 'NUMERIC', 'NULLABLE', None, ()),
+            SchemaField('smallint', 'INTEGER', 'NULLABLE', None, ()),
+            SchemaField('decimal', 'FLOAT', 'NULLABLE', None, ()),
+            SchemaField('real', 'FLOAT', 'NULLABLE', None, ()),
+            SchemaField('double precision', 'FLOAT', 'NULLABLE', None, ()),
+            SchemaField('smallserial', 'INTEGER', 'NULLABLE', None, ()),
+            SchemaField('serial', 'INTEGER', 'NULLABLE', None, ()),
+            SchemaField('bigserial', 'INTEGER', 'NULLABLE', None, ()),
+            SchemaField('char', 'STRING', 'NULLABLE', None, ()),
+            SchemaField('varchar', 'STRING', 'NULLABLE', None, ()),
+            SchemaField('character', 'STRING', 'NULLABLE', None, ()),
+            SchemaField('character varying', 'STRING', 'NULLABLE', None, ()),
+            SchemaField('text', 'STRING', 'NULLABLE', None, ()),
+            SchemaField('json', 'STRING', 'NULLABLE', None, ()),
+            SchemaField('jsonb', 'STRING', 'NULLABLE', None, ()),
+            SchemaField('date', 'DATE', 'NULLABLE', None, ()),
+            SchemaField('time', 'TIME', 'NULLABLE', None, ()),
+            SchemaField('datetime', 'DATETIME', 'NULLABLE', None, ()),
+            SchemaField('timestamp', 'TIMESTAMP', 'NULLABLE', None, ()),
+            SchemaField('timestamp with time zone', 'TIMESTAMP', 'NULLABLE', None, ()),
+            SchemaField('timestamp without time zone', 'TIMESTAMP', 'NULLABLE', None, ()),
+            SchemaField('bytea', 'STRING', 'NULLABLE', None, ()),
+            SchemaField('inet', 'STRING', 'NULLABLE', None, ()),
+            SchemaField('interval', 'STRING', 'NULLABLE', None, ()),
+            SchemaField('name', 'STRING', 'NULLABLE', None, ()),
+            SchemaField('oid', 'STRING', 'NULLABLE', None, ()),
+            SchemaField('pg_lsn', 'STRING', 'NULLABLE', None, ()),
+            SchemaField('pg_node_tree', 'STRING', 'NULLABLE', None, ()),
+            SchemaField('regproc', 'STRING', 'NULLABLE', None, ()),
+            SchemaField('xid', 'STRING', 'NULLABLE', None, ())
+        ]
+
+        bigquery_schema = BigQuery.convert_postgres_schema_to_bigquery(pg_schema)
+
+        self.assertEqual(bigquery_schema, expect_result)
+
+    def test_convert_python_schema_to_bigquery(self):
+
+        python_schema = [
+            {'column_name': 'str', 'column_type': 'str'},
+            {'column_name': 'int', 'column_type': 'int'},
+            {'column_name': 'float', 'column_type': 'float'},
+            {'column_name': 'complex', 'column_type': 'complex'},
+            {'column_name': 'bool', 'column_type': 'bool'},
+            {'column_name': 'date', 'column_type': 'date'},
+            {'column_name': 'time', 'column_type': 'time'},
+            {'column_name': 'datetime', 'column_type': 'datetime'},
+            {'column_name': 'timedelta', 'column_type': 'timedelta'},
+            {'column_name': 'tzinfo', 'column_type': 'tzinfo'},
+            {'column_name': 'timezone', 'column_type': 'timezone'},
+            {'column_name': 'list', 'column_type': 'list'},
+            {'column_name': 'dict', 'column_type': 'dict'},
+            {'column_name': 'tuple', 'column_type': 'tuple'},
+            {'column_name': 'range', 'column_type': 'range'},
+            {'column_name': 'bytes', 'column_type': 'bytes'},
+            {'column_name': 'bytearray', 'column_type': 'bytearray'},
+            {'column_name': 'memoryview', 'column_type': 'memoryview'},
+            {'column_name': 'list', 'column_type': 'list'},
+
+        ]
+        expect_result = [
+            SchemaField('str', 'STRING', 'NULLABLE', None, ()),
+            SchemaField('int', 'INTEGER', 'NULLABLE', None, ()),
+            SchemaField('float', 'FLOAT', 'NULLABLE', None, ()),
+            SchemaField('complex', 'STRING', 'NULLABLE', None, ()),
+            SchemaField('bool', 'BOOLEAN', 'NULLABLE', None, ()),
+            SchemaField('date', 'DATE', 'NULLABLE', None, ()),
+            SchemaField('time', 'TIME', 'NULLABLE', None, ()),
+            SchemaField('datetime', 'DATETIME', 'NULLABLE', None, ()),
+            SchemaField('timedelta', 'STRING', 'NULLABLE', None, ()),
+            SchemaField('tzinfo', 'STRING', 'NULLABLE', None, ()),
+            SchemaField('timezone', 'STRING', 'NULLABLE', None, ()),
+            SchemaField('list', 'STRING', 'NULLABLE', None, ()),
+            SchemaField('dict', 'STRING', 'NULLABLE', None, ()),
+            SchemaField('tuple', 'STRING', 'NULLABLE', None, ()),
+            SchemaField('range', 'STRING', 'NULLABLE', None, ()),
+            SchemaField('bytes', 'STRING', 'NULLABLE', None, ()),
+            SchemaField('bytearray', 'STRING', 'NULLABLE', None, ()),
+            SchemaField('memoryview', 'STRING', 'NULLABLE', None, ()),
+            SchemaField('list', 'STRING', 'NULLABLE', None, ())
+        ]
+
+        bigquery_schema = BigQuery.convert_python_schema_to_bigquery(python_schema)
+
+        self.assertEqual(bigquery_schema, expect_result)
