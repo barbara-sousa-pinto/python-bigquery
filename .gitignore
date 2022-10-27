@@ -140,3 +140,4 @@ GitHub.sublime-settings
 credentials/*
 
 .venv
+.coverage
