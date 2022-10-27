@@ -1,4 +1,4 @@
-name: Workflow
+name: Workflow Unit Tests
 
 env:
   PYTHON_VERSION: "3.9"
@@ -23,7 +23,7 @@ jobs:
           pushd './${{ env.AZURE_FUNCTIONAPP_PACKAGE_PATH }}'
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install -r tests/test_requirements.txt
+          pip install -r tests/tests_requirements.txt
 
       - name: 'Run tests'
         run: pytest --cov-report term-missing --cov tests/
